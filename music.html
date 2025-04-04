@@ -102,29 +102,31 @@
       document.getElementById('output').value = outputLines.join('\n');
     }
 
-    async function playPitchSequence() {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      let t = audioCtx.currentTime;
+async function playPitchSequence() {
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const pitchMultiplier = 2.5; // ← Try values between 2 and 5 for clearer tones
+  let t = audioCtx.currentTime;
 
-      for (let pitch of pitchArray) {
-        if (pitch < 1) {
-          t += 0.2;
-          continue;
-        }
-
-        const osc = audioCtx.createOscillator();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(pitch, t);
-
-        const gain = audioCtx.createGain();
-        gain.gain.setValueAtTime(0.1, t);
-        osc.connect(gain).connect(audioCtx.destination);
-
-        osc.start(t);
-        osc.stop(t + 0.18);
-        t += 0.2;
-      }
+  for (let pitch of pitchArray) {
+    if (pitch < 1) {
+      t += 0.2;
+      continue;
     }
+
+    const osc = audioCtx.createOscillator();
+    osc.type = "square"; // you can also try 'triangle' or 'sawtooth'
+    osc.frequency.setValueAtTime(pitch * pitchMultiplier, t);
+
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.15, t); // slightly louder
+    osc.connect(gain).connect(audioCtx.destination);
+
+    osc.start(t);
+    osc.stop(t + 0.18);
+    t += 0.2;
+  }
+}
+
   </script>
 </body>
 </html>
