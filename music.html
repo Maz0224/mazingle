@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MP3 to Pitch Code</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 2rem; }
+    textarea { width: 80%; height: 200px; margin-top: 1rem; }
+    button { margin: 0.5rem; padding: 0.5rem 1rem; }
+  </style>
+</head>
+<body>
+  <h1>MP3 to Pitch Code Converter</h1>
+  <input type="file" id="fileInput" accept=".mp3" />
+  <br />
+  <button onclick="processMP3()">Convert</button>
+  <button onclick="copyToClipboard()">Copy to Clipboard</button>
+  <button onclick="playPitchSequence()">Play Pitches</button>
+  <br />
+  <textarea id="output" readonly></textarea>
+
+  <script>
+    let pitchArray = [];
+
+    function copyToClipboard() {
+      const output = document.getElementById('output');
+      output.select();
+      document.execCommand('copy');
+    }
+
+    async function processMP3() {
+      const file = document.getElementById('fileInput').files[0];
+      if (!file) return alert("Please upload an MP3 file!");
+
+      const arrayBuffer = await file.arrayBuffer();
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      
+      // Create offline context to process in chunks
+      const sampleRate = 44100;
+      const duration = audioBuffer.duration;
+      const offlineCtx = new OfflineAudioContext(1, sampleRate * duration, sampleRate);
+      const source = offlineCtx.createBufferSource();
+      source.buffer = audioBuffer;
+
+      const analyser = offlineCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      const freqData = new Uint8Array(analyser.frequencyBinCount);
+
+      source.connect(analyser);
+      analyser.connect(offlineCtx.destination);
+      source.start();
+
+      await offlineCtx.startRendering();
+
+      const outputLines = [];
+      pitchArray = [];
+
+      // Slice and analyze pitch every 0.2s
+      const step = Math.floor(sampleRate * 0.2);
+      for (let i = 0; i < audioBuffer.length; i += step) {
+        const frame = audioBuffer.getChannelData(0).slice(i, i + step);
+        const pitch = getDominantPitch(frame, sampleRate);
+        const encoded = encodePitch(pitch);
+        outputLines.push(encoded);
+        pitchArray.push(pitch);
+      }
+
+      document.getElementById('output').value = outputLines.join('\n');
+    }
+
+    function getDominantPitch(frame, sampleRate) {
+      const fftSize = 2048;
+      const buffer = new Float32Array(fftSize);
+      for (let i = 0; i < frame.length && i < fftSize; i++) {
+        buffer[i] = frame[i];
+      }
+
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = fftSize;
+      const source = audioCtx.createBufferSource();
+      const buf = audioCtx.createBuffer(1, buffer.length, sampleRate);
+      buf.copyToChannel(buffer, 0);
+      source.buffer = buf;
+      source.connect(analyser);
+      analyser.connect(audioCtx.destination);
+      source.start();
+
+      const freqData = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(freqData);
+
+      let maxIndex = 0;
+      for (let i = 1; i < freqData.length; i++) {
+        if (freqData[i] > freqData[maxIndex]) maxIndex = i;
+      }
+
+      const nyquist = sampleRate / 2;
+      const frequency = maxIndex * nyquist / freqData.length;
+
+      source.stop();
+      audioCtx.close();
+
+      // Convert frequency to pitch number (arbitrary scaling)
+      return Math.round(frequency);
+    }
+
+    function encodePitch(pitch) {
+      if (!pitch || pitch < 10) return "0 0 0 0"; // silence or very low
+      let bytes = [0, 0, 0, 0];
+      let value = pitch;
+      let i = 0;
+      while (value > 0 && i < 4) {
+        bytes[i] = value % 256;
+        value = Math.floor(value / 256);
+        i++;
+      }
+      return bytes.join(' ');
+    }
+
+    async function playPitchSequence() {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      let t = audioCtx.currentTime;
+
+      for (let pitch of pitchArray) {
+        const freq = pitch;
+        if (freq < 10) {
+          t += 0.2;
+          continue;
+        }
+
+        const osc = audioCtx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, t);
+
+        const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(0.2, t);
+        osc.connect(gain).connect(audioCtx.destination);
+
+        osc.start(t);
+        osc.stop(t + 0.18);
+        t += 0.2;
+      }
+    }
+  </script>
+</body>
+</html>
